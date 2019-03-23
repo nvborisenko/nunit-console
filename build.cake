@@ -6,6 +6,7 @@
 
 var target = Argument("target", "Default");
 var configuration = Argument("configuration", "Release");
+var productVersion = Argument("productVersion", "3.10.0");
 
 var ErrorDetail = new List<string>();
 bool IsDotNetCoreInstalled = false;
@@ -14,19 +15,19 @@ bool IsDotNetCoreInstalled = false;
 // SET PACKAGE VERSION
 //////////////////////////////////////////////////////////////////////
 
-var version = "3.10.0";
-var modifier = "";
+var dash = productVersion.IndexOf('-');
+var version = dash > 0
+    ? productVersion.Substring(0, dash)
+    : productVersion;
 
 var isAppveyor = BuildSystem.IsRunningOnAppVeyor;
-var dbgSuffix = configuration == "Debug" ? "-dbg" : "";
-var productVersion = version + modifier + dbgSuffix;
 
 //////////////////////////////////////////////////////////////////////
 // DEFINE RUN CONSTANTS
 //////////////////////////////////////////////////////////////////////
 
 var PROJECT_DIR = Context.Environment.WorkingDirectory.FullPath + "/";
-var PACKAGE_DIR = PROJECT_DIR + "package/";
+var PACKAGE_DIR = Argument("artifact-dir", PROJECT_DIR + "package") + "/";
 var BIN_DIR = PROJECT_DIR + "bin/" + configuration + "/";
 var NET35_BIN_DIR = BIN_DIR + "net35/";
 var NETCOREAPP11_BIN_DIR = BIN_DIR + "netcoreapp1.1/";
@@ -85,18 +86,18 @@ Setup(context =>
 
         if (branch == "master" && !isPullRequest)
         {
-            productVersion = version + "-dev-" + buildNumber + dbgSuffix;
+            productVersion = version + "-dev-" + buildNumber;
         }
         else
         {
-            var suffix = "-ci-" + buildNumber + dbgSuffix;
+            var suffix = "-ci-" + buildNumber;
 
             if (isPullRequest)
                 suffix += "-pr-" + AppVeyor.Environment.PullRequest.Number;
             else if (AppVeyor.Environment.Repository.Branch.StartsWith("release", StringComparison.OrdinalIgnoreCase))
                 suffix += "-pre-" + buildNumber;
             else
-                suffix += "-" + branch;
+                suffix += "-" + System.Text.RegularExpressions.Regex.Replace(branch, "[^0-9A-Za-z-]+", "-");
 
             // Nuget limits "special version part" to 20 chars. Add one for the hyphen.
             if (suffix.Length > 21)
@@ -152,13 +153,37 @@ Task("UpdateAssemblyInfo")
 // BUILD ENGINE AND CONSOLE
 //////////////////////////////////////////////////////////////////////
 
-MSBuildSettings CreateMSBuildSettings(string target) => new MSBuildSettings()
-    .SetConfiguration(configuration)
-    .SetVerbosity(Verbosity.Minimal)
-    .WithProperty("PackageVersion", productVersion)
-    .WithTarget(target)
-    // Workaround for https://github.com/Microsoft/msbuild/issues/3626
-    .WithProperty("AddSyntheticProjectReferencesForSolutionDependencies", "false");
+MSBuildSettings CreateMSBuildSettings(string target)
+{
+    var settings = new MSBuildSettings()
+        .SetConfiguration(configuration)
+        .SetVerbosity(Verbosity.Minimal)
+        .WithProperty("PackageVersion", productVersion)
+        .WithTarget(target)
+        // Workaround for https://github.com/Microsoft/msbuild/issues/3626
+        .WithProperty("AddSyntheticProjectReferencesForSolutionDependencies", "false");
+
+    if (IsRunningOnWindows())
+    {
+        // The fallback is in case only a preview of VS is installed.
+        var vsInstallation =
+            VSWhereLatest(new VSWhereLatestSettings { Requires = "Microsoft.Component.MSBuild" })
+            ?? VSWhereLatest(new VSWhereLatestSettings { Requires = "Microsoft.Component.MSBuild", IncludePrerelease = true });
+
+        if (vsInstallation != null)
+        {
+            var msBuildPath = vsInstallation.CombineWithFilePath(@"MSBuild\Current\Bin\MSBuild.exe");
+
+            if (!FileExists(msBuildPath))
+                msBuildPath = vsInstallation.CombineWithFilePath(@"MSBuild\15.0\Bin\MSBuild.exe");
+
+            if (FileExists(msBuildPath))
+                settings.ToolPath = msBuildPath;
+        }
+    }
+
+    return settings;
+}
 
 Task("Build")
     .Description("Builds the engine and console")
@@ -228,7 +253,7 @@ Task("TestNet20Engine")
     .OnError(exception => { ErrorDetail.Add(exception.Message); })
     .Does(() =>
     {
-        RunTest(NET20_CONSOLE, NET35_BIN_DIR, ENGINE_TESTS, "TestEngine", ref ErrorDetail);
+        RunTest(NET20_CONSOLE, NET35_BIN_DIR, ENGINE_TESTS, "net35", ref ErrorDetail);
     });
 
 //////////////////////////////////////////////////////////////////////
@@ -241,7 +266,7 @@ Task("TestNet20Console")
     .OnError(exception => { ErrorDetail.Add(exception.Message); })
     .Does(() =>
     {
-        RunTest(NET20_CONSOLE, NET35_BIN_DIR, CONSOLE_TESTS, "TestConsole", ref ErrorDetail);
+        RunTest(NET20_CONSOLE, NET35_BIN_DIR, CONSOLE_TESTS, "net35", ref ErrorDetail);
     });
 
 //////////////////////////////////////////////////////////////////////
@@ -254,12 +279,13 @@ Task("TestNetStandard16Engine")
     .OnError(exception => { ErrorDetail.Add(exception.Message); })
     .Does(() =>
     {
-        if(IsDotNetCoreInstalled)
+        if (IsDotNetCoreInstalled)
         {
-            DotNetCoreExecute(NETCOREAPP11_BIN_DIR + ENGINE_TESTS, "", new DotNetCoreExecuteSettings 
-            {
-                FrameworkVersion = "1.1.11" // LTS
-            });
+            RunDotnetCoreTests(
+                NETCOREAPP11_BIN_DIR + ENGINE_TESTS,
+                NETCOREAPP11_BIN_DIR,
+                "netcoreapp1.1",
+                ref ErrorDetail);
         }
         else
         {
@@ -277,12 +303,13 @@ Task("TestNetStandard20Engine")
     .OnError(exception => { ErrorDetail.Add(exception.Message); })
     .Does(() =>
     {
-        if(IsDotNetCoreInstalled)
+        if (IsDotNetCoreInstalled)
         {
-            DotNetCoreExecute(NETCOREAPP20_BIN_DIR + ENGINE_TESTS, "", new DotNetCoreExecuteSettings 
-            {
-                FrameworkVersion = "2.1.8" // LTS
-            });
+            RunDotnetCoreTests(
+                NETCOREAPP20_BIN_DIR + ENGINE_TESTS,
+                NETCOREAPP20_BIN_DIR,
+                "netcoreapp2.0",
+                ref ErrorDetail);
         }
         else
         {
@@ -351,7 +378,15 @@ Task("PackageNuGet")
             NoPackageAnalysis = true
         });
 
-        NuGetPack("nuget/runners/nunit.runners.nuspec", new NuGetPackSettings()
+        NuGetPack("nuget/deprecated/nunit.runners.nuspec", new NuGetPackSettings()
+        {
+            Version = productVersion,
+            BasePath = CURRENT_IMG_DIR,
+            OutputDirectory = PACKAGE_DIR,
+            NoPackageAnalysis = true
+        });
+
+        NuGetPack("nuget/deprecated/nunit.engine.netstandard.nuspec", new NuGetPackSettings()
         {
             Version = productVersion,
             BasePath = CURRENT_IMG_DIR,
@@ -511,33 +546,56 @@ void CheckForError(ref List<string> errorDetail)
 // HELPER METHODS - TEST
 //////////////////////////////////////////////////////////////////////
 
-void RunTest(FilePath exePath, DirectoryPath workingDir, string framework, ref List<string> errorDetail)
+FilePath GetResultXmlPath(string testAssembly, string framework)
+{
+    var assemblyName = System.IO.Path.GetFileNameWithoutExtension(testAssembly);
+
+    // Workaround for https://github.com/nunit/nunit-console/issues/501
+    CreateDirectory($@"test-results\{framework}");
+
+    return MakeAbsolute(new FilePath($@"test-results\{framework}\{assemblyName}.xml"));
+}
+
+void RunTest(FilePath exePath, DirectoryPath workingDir, string testAssembly, string framework, ref List<string> errorDetail)
 {
     int rc = StartProcess(
         MakeAbsolute(exePath),
         new ProcessSettings()
         {
+            Arguments = new ProcessArgumentBuilder()
+                .Append(testAssembly)
+                .AppendSwitchQuoted("--result", ":", GetResultXmlPath(testAssembly, framework).FullPath)
+                .Render(),
             WorkingDirectory = workingDir
         });
 
     if (rc > 0)
-        errorDetail.Add(string.Format("{0}: {1} tests failed",framework, rc));
+        errorDetail.Add(string.Format("{0}: {1} tests failed", framework, rc));
     else if (rc < 0)
         errorDetail.Add(string.Format("{0} returned rc = {1}", exePath, rc));
 }
 
-void RunTest(FilePath exePath, DirectoryPath workingDir, string arguments, string framework, ref List<string> errorDetail)
+void RunDotnetCoreTests(FilePath exePath, DirectoryPath workingDir, string framework, ref List<string> errorDetail)
+{
+    RunDotnetCoreTests(exePath, workingDir, arguments: null, framework, ref errorDetail);
+}
+
+void RunDotnetCoreTests(FilePath exePath, DirectoryPath workingDir, string arguments, string framework, ref List<string> errorDetail)
 {
     int rc = StartProcess(
-        MakeAbsolute(exePath),
-        new ProcessSettings()
+        "dotnet",
+        new ProcessSettings
         {
-            Arguments = arguments,
+            Arguments = new ProcessArgumentBuilder()
+                .AppendQuoted(exePath.FullPath)
+                .Append(arguments)
+                .AppendSwitchQuoted("--result", ":", GetResultXmlPath(exePath.FullPath, framework).FullPath)
+                .Render(),
             WorkingDirectory = workingDir
         });
 
     if (rc > 0)
-        errorDetail.Add(string.Format("{0}: {1} tests failed",framework, rc));
+        errorDetail.Add(string.Format("{0}: {1} tests failed", framework, rc));
     else if (rc < 0)
         errorDetail.Add(string.Format("{0} returned rc = {1}", exePath, rc));
 }

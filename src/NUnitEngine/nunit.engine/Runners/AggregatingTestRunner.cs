@@ -38,8 +38,23 @@ namespace NUnit.Engine.Runners
     /// </summary>
     public class AggregatingTestRunner : AbstractTestRunner
     {
+        // AggregatingTestRunner combines the results from tests run by different
+        // runners. It may be used as a base class or through one of it's derived
+        // classes, MultipleTestDomainRunner and MultipleTestProcessRunner.
+        //
         // The runners created by the derived class will (at least at the time
-        // of writing this comment) be either TestDomainRunners or ProcessRunners.
+        // of writing this comment) be either DirectTestRunners, ProcessRunners or
+        // AggregatingTestRunners.
+        //
+        // AggregatingTestRunner is used in the engine/runner process as well as in agent
+        // processes. It may be called with a TestPackage that specifies a single 
+        // assembly, multiple assemblies, a single project, multiple projects or
+        // a mix of projects and assemblies. Each file passed is handled by
+        // a single runner.
+        //
+        // TODO: Determine whether AggregatingTestRunner needs to create an XML result
+        // node for a project or if that responsibility can be delegated to the individual
+        // runners it creates.
         private List<ITestEngineRunner> _runners;
 
         // Exceptions from unloading individual runners are caught and rethrown
@@ -100,10 +115,6 @@ namespace NUnit.Engine.Runners
         protected override TestEngineResult LoadPackage()
         {
             var results = new List<TestEngineResult>();
-
-            var packages = new List<TestPackage>(TestPackage.SubPackages);
-            if (packages.Count == 0)
-                packages.Add(TestPackage);
 
             foreach (var runner in Runners)
                 results.Add(runner.Load());

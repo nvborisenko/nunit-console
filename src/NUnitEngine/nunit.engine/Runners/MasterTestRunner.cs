@@ -33,8 +33,25 @@ using System.ComponentModel;
 
 namespace NUnit.Engine.Runners
 {
+    /// <summary>
+    /// MasterTestRunner implements the ITestRunner interface, which
+    /// is the user-facing representation of a test runner. It uses
+    /// various internal runners to load and run tests for the user.
+    /// </summary>
     public class MasterTestRunner : ITestRunner
     {
+        // MasterTestRunner is the only runner that is passed back
+        // to users asking for an ITestRunner. The actual details of
+        // execution are handled by various internal runners, which
+        // impement ITestEngineRunner.
+        //
+        // Explore and execution results from MasterTestRunner are
+        // returned as XmlNodes, created from the internal 
+        // TestEngineResult representation.
+        // 
+        // MasterTestRUnner is responsible for creating the test-run
+        // element, which wraps all the individual assembly and project
+        // results.
         private const string TEST_RUN_ELEMENT = "test-run";
         private readonly ITestEngineRunner _engineRunner;
         private readonly IServiceLocator _services;
@@ -278,7 +295,7 @@ namespace NUnit.Engine.Runners
 
             if (package.SubPackages.Count == 0 && IsProjectPackage(package))
             {
-                ExpandProjects(package);
+                _projectService.ExpandProjectPackage(package);
             }
         }
 
@@ -290,14 +307,6 @@ namespace NUnit.Engine.Runners
                 _projectService != null
                 && !string.IsNullOrEmpty(package.FullName)
                 && _projectService.CanLoadFrom(package.FullName);
-        }
-
-        private void ExpandProjects(TestPackage package)
-        {
-            if (package == null) throw new ArgumentNullException("package");
-
-            if (_projectService.CanLoadFrom(package.FullName))
-                _projectService.ExpandProjectPackage(package);
         }
 
         // Any Errors thrown from this method indicate that the client

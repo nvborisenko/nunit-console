@@ -28,11 +28,10 @@ using NUnit.Engine.Services;
 namespace NUnit.Engine.Runners
 {
     /// <summary>
-    /// AbstractTestRunner is the base class for all runners
-    /// within the NUnit Engine. It implements the ITestRunner
-    /// interface, which is used by clients of the engine and
-    /// uses a Template pattern with abstract methods overridden
-    /// by the derived runners.
+    /// AbstractTestRunner is the base class for all internal runners
+    /// within the NUnit Engine. It implements the ITestEngineRunner
+    /// interface, which uses TestEngineResults to communicate back
+    /// to higher level runners.
     /// </summary>
     public abstract class AbstractTestRunner : ITestEngineRunner
     {
@@ -40,7 +39,6 @@ namespace NUnit.Engine.Runners
         {
             Services = services;
             TestRunnerFactory = Services.GetService<ITestRunnerFactory>();
-            ProjectService = Services.GetService<IProjectService>();
             TestPackage = package;
         }
 
@@ -50,8 +48,6 @@ namespace NUnit.Engine.Runners
         /// Our Service Context
         /// </summary>
         protected IServiceLocator Services { get; private set; }
-
-        protected IProjectService ProjectService { get; private set; }
 
         protected ITestRunnerFactory TestRunnerFactory { get; private set; }
 

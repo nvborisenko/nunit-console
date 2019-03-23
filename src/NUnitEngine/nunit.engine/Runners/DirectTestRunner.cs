@@ -35,6 +35,29 @@ namespace NUnit.Engine.Runners
     /// </summary>
     public abstract class DirectTestRunner : AbstractTestRunner
     {
+        // DirectTestRunner loads and runs tests in a particular AppDomain using
+        // one driver per assembly. All test assemblies are ultimately executed by
+        // one of the derived classes of DirectTestRunner, either LocalTestRunner
+        // or TestDomainRunner.
+        //
+        // DirectTestRunner creates an appropriate framework driver for each assembly
+        // included in the TestPackage. All frameworks loaded by the same DirectRunner
+        // must be compatible, i.e. runnable within the same AppDomain.
+        // 
+        // DirectTestRunner is used in the engine/runner process as well as in agent
+        // processes. It may be called with a TestPackage that specifies a single 
+        // assembly, multiple assemblies, a single project, multiple projects or
+        // a mix of projects and assemblies. This variety of potential package
+        // inputs complicates things. It arises from the fact that NUnit permits 
+        // the caller to specify that all projects and assemblies should be loaded 
+        // in the same AppDomain.
+        //
+        // TODO: When there are projects included in the TestPackage, DirectTestRUnner
+        // should create intermediate result nodes for each project.
+        //
+        // TODO: We really should detect and give a meaningful message if the user 
+        // tries to load incopatible frameworks in the same AppDomain.
+
         private readonly List<IFrameworkDriver> _drivers = new List<IFrameworkDriver>();
 
 #if !NETSTANDARD1_6
@@ -99,15 +122,15 @@ namespace NUnit.Engine.Runners
         {
             var result = new TestEngineResult();
 
-            // DirectRunner may be called with a single-assembly package
-            // or a set of assemblies as subpackages.
-            var packages = TestPackage.SubPackages;
-            if (packages.Count == 0)
-                packages.Add(TestPackage);
+            // DirectRunner may be called with a single-assembly package,
+            // a set of assemblies as subpackages or even an arbitrary
+            // hierarchy of packages and subpackages with assemblies
+            // found in the terminal nodes.
+            var packagesToLoad = TestPackage.Select(p => !p.HasSubPackages());
 
             var driverService = Services.GetService<IDriverService>();
 
-            foreach (var subPackage in packages)
+            foreach (var subPackage in packagesToLoad)
             {
                 var testFile = subPackage.FullName;
 
@@ -207,12 +230,7 @@ namespace NUnit.Engine.Runners
 #if !NETSTANDARD1_6
             if (_assemblyResolver != null)
             {
-                var packages = TestPackage.SubPackages;
-
-                if (packages.Count == 0)
-                    packages.Add(TestPackage);
-
-                foreach (var package in packages)
+                foreach (var package in TestPackage.Select(p => p.IsAssemblyPackage()))
                     _assemblyResolver.RemovePathFromFile(package.FullName);
             }
 #endif
