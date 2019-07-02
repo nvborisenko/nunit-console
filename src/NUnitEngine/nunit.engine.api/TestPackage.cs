@@ -31,15 +31,23 @@ namespace NUnit.Engine
     /// TestPackage holds information about a set of test files to
     /// be loaded by a TestRunner. Each TestPackage represents
     /// tests for one or more test files. TestPackages may be named
-    /// or anonymous, depending on how they are constructed.
+    /// or anonymous, depending on the constructor used.
+    /// 
+    /// Upon construction, a package is given an ID (string), which
+    /// remains unchanged for the lifetime of the TestPackage instance.
+    /// The package ID is passed to the test framework for use in generating
+    /// test IDs.
+    /// 
+    /// A runner that reloads test assemblies and wants the ids to remain stable
+    /// should avoid creating a new package but should instead use the original
+    /// package, changing settings as needed. This gives the best chance for the
+    /// tests in the reloaded assembly to match those originally loaded.
     /// </summary>
 #if !NETSTANDARD1_6
     [Serializable]
 #endif
     public class TestPackage
     {
-        #region Constructors
-
         /// <summary>
         /// Construct a named TestPackage, specifying a file path for
         /// the assembly or project to be used.
@@ -78,10 +86,6 @@ namespace NUnit.Engine
             return (_nextID++).ToString();
         }
 
-        #endregion
-
-        #region Properties
-
         /// <summary>
         /// Every test package gets a unique ID used to prefix test IDs within that package.
         /// </summary>
@@ -114,10 +118,6 @@ namespace NUnit.Engine
         /// Gets the settings dictionary for this package.
         /// </summary>
         public IDictionary<string,object> Settings { get; private set; }
-
-        #endregion
-
-        #region Public Methods
 
         /// <summary>
         /// Add a subproject to the package.
@@ -162,17 +162,5 @@ namespace NUnit.Engine
                 ? (T)Settings[name]
                 : defaultSetting;
         }
-
-        #endregion
-
-        #region Helper Methods
-
-        private static bool IsAssemblyFileType(string path)
-        {
-            string extension = Path.GetExtension(path).ToLower();
-            return extension == ".dll" || extension == ".exe";
-        }
-
-        #endregion
     }
 }

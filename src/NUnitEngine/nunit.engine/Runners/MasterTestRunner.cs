@@ -52,8 +52,8 @@ namespace NUnit.Engine.Runners
         // MasterTestRUnner is responsible for creating the test-run
         // element, which wraps all the individual assembly and project
         // results.
-        private const string TEST_RUN_ELEMENT = "test-run";
-        private readonly ITestEngineRunner _engineRunner;
+
+        private ITestEngineRunner _engineRunner;
         private readonly IServiceLocator _services;
 #if !NETSTANDARD1_6
         private readonly ExtensionService _extensionService;
@@ -62,6 +62,7 @@ namespace NUnit.Engine.Runners
 #endif
 #endif
         private readonly IProjectService _projectService;
+        private ITestRunnerFactory _testRunnerFactory;
         private bool _disposed;
 
         public MasterTestRunner(IServiceLocator services, TestPackage package)
@@ -74,18 +75,19 @@ namespace NUnit.Engine.Runners
 
             // Get references to the services we use
             _projectService = _services.GetService<IProjectService>();
+            _testRunnerFactory = _services.GetService<ITestRunnerFactory>();
+
 #if !NETSTANDARD1_6 && !NETSTANDARD2_0
             _runtimeService = _services.GetService<IRuntimeFrameworkService>();
 #endif
 #if !NETSTANDARD1_6
             _extensionService = _services.GetService<ExtensionService>();
 #endif
-            _engineRunner = _services.GetService<ITestRunnerFactory>().MakeTestRunner(package);
 
-            InitializePackage();
+            // Last chance to catch invalid settings in package,
+            // in case the client runner missed them.
+            ValidatePackageSettings();
         }
-
-#region Properties
 
         /// <summary>
         /// The TestPackage for which this is the runner
@@ -105,10 +107,6 @@ namespace NUnit.Engine.Runners
             get { return LoadResult != null; }
         }
 
-#endregion
-
-#region ITestRunner Members
-
         /// <summary>
         /// Get a flag indicating whether a test is running
         /// </summary>
@@ -122,8 +120,7 @@ namespace NUnit.Engine.Runners
         /// <returns>An XmlNode representing the loaded assembly.</returns>
         public XmlNode Load()
         {
-            LoadResult = PrepareResult(_engineRunner.Load())
-                .Aggregate(TEST_RUN_ELEMENT, TestPackage.Name, TestPackage.FullName);
+            LoadResult = PrepareResult(GetEngineRunner().Load()).MakeTestRunResult(TestPackage);
 
             return LoadResult.Xml;
         }
@@ -144,8 +141,7 @@ namespace NUnit.Engine.Runners
         /// <exception cref="InvalidOperationException">If no package has been loaded</exception>
         public XmlNode Reload()
         {
-            LoadResult = PrepareResult(_engineRunner.Reload())
-               .Aggregate(TEST_RUN_ELEMENT, TestPackage.Name, TestPackage.FullName);
+            LoadResult = PrepareResult(GetEngineRunner().Reload()).MakeTestRunResult(TestPackage);
 
             return LoadResult.Xml;
         }
@@ -158,7 +154,7 @@ namespace NUnit.Engine.Runners
         /// <returns>The count of test cases.</returns>
         public int CountTestCases(TestFilter filter)
         {
-            return _engineRunner.CountTestCases(filter);
+            return GetEngineRunner().CountTestCases(filter);
         }
 
         /// <summary>
@@ -171,7 +167,7 @@ namespace NUnit.Engine.Runners
         /// <returns>An XmlNode giving the result of the test execution</returns>
         public XmlNode Run(ITestEventListener listener, TestFilter filter)
         {
-            return PrepareResult(RunTests(listener, filter)).Xml;
+            return RunTests(listener, filter).Xml;
         }
 
 
@@ -206,15 +202,11 @@ namespace NUnit.Engine.Runners
         /// <returns>An XmlNode representing the tests found.</returns>
         public XmlNode Explore(TestFilter filter)
         {
-            LoadResult = PrepareResult(_engineRunner.Explore(filter))
-                .Aggregate(TEST_RUN_ELEMENT, TestPackage.Name, TestPackage.FullName);
+            LoadResult = PrepareResult(GetEngineRunner().Explore(filter))
+                .MakeTestRunResult(TestPackage);
 
             return LoadResult.Xml;
         }
-
-#endregion
-
-#region IDisposable
 
         public void Dispose()
         {
@@ -236,52 +228,93 @@ namespace NUnit.Engine.Runners
             }
         }
 
-#endregion
-
-#region Helper Methods
-
-        /// <summary>
-        /// Check the package settings, expand projects and
-        /// determine what runtimes may be needed.
-        /// </summary>
-        private void InitializePackage()
+        //Exposed for testing
+        internal ITestEngineRunner GetEngineRunner()
         {
-            // Last chance to catch invalid settings in package,
-            // in case the client runner missed them.
-            ValidatePackageSettings();
+            if (_engineRunner == null)
+            {
+                // Some files in the top level package may be projects.
+                // Expand them so that they contain subprojects for
+                // each contained assembly.
+                EnsurePackagesAreExpanded(TestPackage);
 
-            // Some files in the top level package may be projects.
-            // Expand them so that they contain subprojects for
-            // each contained assembly.
-            EnsurePackagesAreExpanded(TestPackage);
-
-            // Use SelectRuntimeFramework for its side effects.
-            // Info will be left behind in the package about
-            // each contained assembly, which will subsequently
-            // be used to determine how to run the assembly.
+                // Use SelectRuntimeFramework for its side effects.
+                // Info will be left behind in the package about
+                // each contained assembly, which will subsequently
+                // be used to determine how to run the assembly.
 #if !NETSTANDARD1_6 && !NETSTANDARD2_0
-            _runtimeService.SelectRuntimeFramework(TestPackage);
+                _runtimeService.SelectRuntimeFramework(TestPackage);
 #endif
 
-            var processModel = TestPackage.GetSetting(EnginePackageSettings.ProcessModel, "").ToLower();
-
-            if (IntPtr.Size == 8 && (processModel == "inprocess" || processModel == "single")  &&
-                TestPackage.GetSetting(EnginePackageSettings.RunAsX86, false))
-            {
-                throw new NUnitEngineException("Cannot run tests in process - a 32 bit process is required.");
+                _engineRunner = _testRunnerFactory.MakeTestRunner(TestPackage);
             }
+
+            return _engineRunner;
         }
 
+        // The TestEngineResult returned to MasterTestRunner contains no info
+        // about projects. At this point, if there are any projects, the result
+        // needs to be modified to include info about them. Doing it this way
+        // allows the lower-level runners to be completely ignorant of projects
         private TestEngineResult PrepareResult(TestEngineResult result)
         {
             if (result == null) throw new ArgumentNullException("result");
 
-            if (!IsProjectPackage(TestPackage))
-            {
-                return result;
-            }
+            // See if we have any projects to deal with. At this point,
+            // any subpackage, which itself has subpackages, is a project
+            // we expanded.
+            bool hasProjects = false;
+                foreach (var p in TestPackage.SubPackages)
+                    hasProjects |= p.HasSubPackages();
 
-            return result.MakePackageResult(TestPackage.Name, TestPackage.FullName);
+            // If no Projects, there's nothing to do
+            if (!hasProjects)
+                return result;
+
+            // If there is just one subpackage, it has to be a project and we don't
+            // need to rebuild the XML but only wrap it with a project result.
+            if (TestPackage.SubPackages.Count == 1)
+                return result.MakeProjectResult(TestPackage.SubPackages[0]);
+
+            // Most complex case - we need to work with the XML in order to
+            // examine and rebuild the result to include project nodes.
+            // NOTE: The algorithm used here relies on the ordering of nodes in the
+            // result matching the ordering of subpackages under the top-level package.
+            // If that should change in the future, then we would need to implement
+            // identification and summarization of projects into each of the lower-
+            // level TestEngineRunners. In that case, we will be warned by failures
+            // of some of the MasterTestRunnerTests.
+
+            // Start a fresh TestEngineResult for top level
+            var topLevelResult = new TestEngineResult();
+            int nextTest = 0;
+
+            foreach (var subPackage in TestPackage.SubPackages)
+            {
+                if (subPackage.HasSubPackages())
+                {
+                    // This is a project, create an intermediate result
+                    var projectResult = new TestEngineResult();
+                    
+                    // Now move any children of this project under it. As noted
+                    // above, we must rely on ordering here because (1) the
+                    // fullname attribute is not reliable on all nunit framework
+                    // versions, (2) we may have duplicates of the same assembly
+                    // and (3) we have no info about the id of each assembly.
+                    int numChildren = subPackage.SubPackages.Count;
+                    while (numChildren-- > 0)
+                        projectResult.Add(result.XmlNodes[nextTest++]);
+                    
+                    topLevelResult.Add(projectResult.MakeProjectResult(subPackage).Xml);
+                }
+                else
+                {
+                    // Add the next assembly package to our new result
+                    topLevelResult.Add(result.XmlNodes[nextTest++]);
+                }
+            }
+            
+            return topLevelResult;
         }
 
         private void EnsurePackagesAreExpanded(TestPackage package)
@@ -314,7 +347,11 @@ namespace NUnit.Engine.Runners
         private void ValidatePackageSettings()
         {
 #if !NETSTANDARD1_6 && !NETSTANDARD2_0  // TODO: How do we validate runtime framework for .NET Standard 2.0?
+            var processModel = TestPackage.GetSetting(EnginePackageSettings.ProcessModel, "Default").ToLower();
+            var runningInProcess = processModel == "single" || processModel == "inprocess";
             var frameworkSetting = TestPackage.GetSetting(EnginePackageSettings.RuntimeFramework, "");
+            var runAsX86 = TestPackage.GetSetting(EnginePackageSettings.RunAsX86, false);
+
             if (frameworkSetting.Length > 0)
             {
                 // Check requested framework is actually available
@@ -323,8 +360,7 @@ namespace NUnit.Engine.Runners
                     throw new NUnitEngineException(string.Format("The requested framework {0} is unknown or not available.", frameworkSetting));
 
                 // If running in process, check requested framework is compatible
-                var processModel = TestPackage.GetSetting(EnginePackageSettings.ProcessModel, "Default").ToLower();
-                if (processModel == "single" || processModel == "inprocess")
+                if (runningInProcess)
                 {
                     var currentFramework = RuntimeFramework.CurrentFramework;
 
@@ -337,6 +373,9 @@ namespace NUnit.Engine.Runners
                             "Cannot run {0} framework in process already running {1}.", frameworkSetting, currentFramework));
                 }
             }
+
+            if (runningInProcess && runAsX86 && IntPtr.Size == 8)
+                throw new NUnitEngineException("Cannot run tests in process - a 32 bit process is required.");
 #endif
         }
 
@@ -361,7 +400,7 @@ namespace NUnit.Engine.Runners
         {
             if (!IsPackageLoaded) return 0;
 
-            return _engineRunner.CountTestCases(filter);
+            return GetEngineRunner().CountTestCases(filter);
         }
 
         /// <summary>
@@ -382,26 +421,44 @@ namespace NUnit.Engine.Runners
 #endif
 
             IsTestRunning = true;
+            
+            string clrVersion;
+            string engineVersion;
 
-            eventDispatcher.OnTestEvent(string.Format("<start-run count='{0}'/>", CountTests(filter)));
+#if !NETSTANDARD1_6
+            clrVersion = Environment.Version.ToString();
+            engineVersion = Assembly.GetExecutingAssembly().GetName().Version.ToString();
+#else
+            clrVersion =  Microsoft.DotNet.InternalAbstractions.RuntimeEnvironment.GetRuntimeIdentifier();
+            engineVersion = typeof(MasterTestRunner).GetTypeInfo().Assembly.GetName().Version.ToString();
+#endif
 
-            DateTime startTime = DateTime.UtcNow;
+            var startTime = DateTime.UtcNow;
+            var startRunNode = XmlHelper.CreateTopLevelElement("start-run");
+            startRunNode.AddAttribute("count", CountTests(filter).ToString());
+            startRunNode.AddAttribute("start-time", XmlConvert.ToString(startTime, "u"));
+            startRunNode.AddAttribute("engine-version", engineVersion);
+            startRunNode.AddAttribute("clr-version", clrVersion);
+
+#if !NETSTANDARD1_6
+            InsertCommandLineElement(startRunNode);
+#endif
+
+            eventDispatcher.OnTestEvent(startRunNode.OuterXml);
+
             long startTicks = Stopwatch.GetTimestamp();
 
-            TestEngineResult result = _engineRunner.Run(eventDispatcher, filter).Aggregate("test-run", TestPackage.Name, TestPackage.FullName);
+            TestEngineResult result = PrepareResult(GetEngineRunner().Run(eventDispatcher, filter)).MakeTestRunResult(TestPackage);
 
             // These are inserted in reverse order, since each is added as the first child.
             InsertFilterElement(result.Xml, filter);
 
 #if !NETSTANDARD1_6
             InsertCommandLineElement(result.Xml);
-            result.Xml.AddAttribute("engine-version", Assembly.GetExecutingAssembly().GetName().Version.ToString());
-            result.Xml.AddAttribute("clr-version", Environment.Version.ToString());
-#else
-            result.Xml.AddAttribute("engine-version", typeof(MasterTestRunner).GetTypeInfo().Assembly.GetName().Version.ToString());
-            result.Xml.AddAttribute("clr-version", Microsoft.DotNet.InternalAbstractions.RuntimeEnvironment.GetRuntimeIdentifier());
 #endif
 
+            result.Xml.AddAttribute("engine-version", engineVersion);
+            result.Xml.AddAttribute("clr-version", clrVersion);
             double duration = (double)(Stopwatch.GetTimestamp() - startTicks) / Stopwatch.Frequency;
             result.Xml.AddAttribute("start-time", XmlConvert.ToString(startTime, "u"));
             result.Xml.AddAttribute("end-time", XmlConvert.ToString(DateTime.UtcNow, "u"));
@@ -470,7 +527,5 @@ namespace NUnit.Engine.Runners
             var filterElement = doc.ImportNode(tempNode, true);
             resultNode.InsertAfter(filterElement, null);
         }
-
-#endregion
     }
 }

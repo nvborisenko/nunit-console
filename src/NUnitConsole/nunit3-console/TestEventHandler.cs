@@ -26,7 +26,7 @@ using System.Xml;
 using NUnit.Engine;
 
 namespace NUnit.ConsoleRunner
-{    
+{
     /// <summary>
     /// TestEventHandler processes events from the running
     /// test for the console runner.
@@ -47,12 +47,10 @@ namespace NUnit.ConsoleRunner
             _outWriter = outWriter;
 
             labelsOption = labelsOption.ToUpper(System.Globalization.CultureInfo.InvariantCulture);
-            _displayBeforeTest = labelsOption == "ALL" || labelsOption == "BEFORE";
-            _displayAfterTest = labelsOption == "AFTER";
+            _displayBeforeTest = labelsOption == "ALL" || labelsOption == "BEFORE" || labelsOption == "BEFOREANDAFTER";
+            _displayAfterTest = labelsOption == "AFTER" || labelsOption == "BEFOREANDAFTER";
             _displayBeforeOutput = _displayBeforeTest || _displayAfterTest || labelsOption == "ON";
         }
-
-        #region ITestEventHandler Members
 
         public void OnTestEvent(string report)
         {
@@ -79,10 +77,6 @@ namespace NUnit.ConsoleRunner
                     break;
             }
         }
-
-        #endregion
-
-        #region Individual Handlers
 
         private void TestStarted(XmlNode testResult)
         {
@@ -218,15 +212,9 @@ namespace NUnit.ConsoleRunner
             }
         }
 
-        #endregion
-
-        #region InitializeLifetimeService
-
         public override object InitializeLifetimeService()
         {
             return null;
         }
-
-        #endregion
     }
 }

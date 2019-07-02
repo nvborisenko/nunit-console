@@ -114,13 +114,12 @@ namespace NUnit.Agent
             // Create TestEngine - this program is
             // conceptually part of  the engine and
             // can access its internals as needed.
-            TestEngine engine = new TestEngine();
-
-            // TODO: We need to get this from somewhere. Argument?
-            engine.InternalTraceLevel = InternalTraceLevel.Debug;
+            var engine = new TestEngine
+            {
+                InternalTraceLevel = traceLevel
+            };
 
             // Custom Service Initialization
-            //log.Info("Adding Services");
             engine.Services.Add(new ExtensionService());
             engine.Services.Add(new DomainManager());
             engine.Services.Add(new InProcessTestRunnerFactory());
@@ -145,7 +144,7 @@ namespace NUnit.Agent
             }
             catch (Exception ex)
             {
-                log.Error("Exception in RemoteTestAgent", ex);
+                log.Error("Exception in RemoteTestAgent. {0}", ExceptionHelper.BuildMessageAndStackTrace(ex));
                 Environment.Exit(AgentExitCodes.UNEXPECTED_EXCEPTION);
             }
             log.Info("Agent process {0} exiting cleanly", pid);

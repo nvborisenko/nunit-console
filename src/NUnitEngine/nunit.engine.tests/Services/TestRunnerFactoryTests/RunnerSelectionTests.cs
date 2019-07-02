@@ -31,27 +31,44 @@ using NUnit.Framework;
 
 namespace NUnit.Engine.Tests.Services.TestRunnerFactoryTests
 {
+    /// <summary>
+    /// Tests of ITestRunner tree structure for different combinations
+    /// of TestPackage and PackageSettings. Tests are currently written
+    /// to protect existing behaviour, rather than define desired behaviour.
+    /// </summary>
     public class RunnerSelectionTests
     {
         private DefaultTestRunnerFactory _factory;
+        private ServiceContext _services;
 
         [OneTimeSetUp]
         public void SetUp()
         {
-            var services = new ServiceContext();
+            _services = new ServiceContext();
 #if !NETCOREAPP1_1
-            services.Add(new ExtensionService());
-            services.Add(new FakeProjectService());
+            _services.Add(new ExtensionService());
+            var projectService = new FakeProjectService();
+            ((IService)projectService).StartService();
+            projectService.Add(TestPackageFactory.FakeProject, "a.dll", "b.dll");
+            _services.Add(projectService);
+            Assert.That(((IService)projectService).Status, Is.EqualTo(ServiceStatus.Started));
 #endif
             _factory = new DefaultTestRunnerFactory();
-            services.Add(_factory);
+            _services.Add(_factory);
             _factory.StartService();
+            Assert.That(_factory.Status, Is.EqualTo(ServiceStatus.Started));
+
+            var fakeRuntimeService = new FakeRuntimeService();
+            ((IService)fakeRuntimeService).StartService();
+            _services.Add(fakeRuntimeService);
+            Assert.That(((IService)fakeRuntimeService).Status, Is.EqualTo(ServiceStatus.Started));
         }
 
         [TestCaseSource(nameof(TestCases))]
         public void RunnerSelectionTest(TestPackage package, RunnerResult expected)
         {
-            var runner = _factory.MakeTestRunner(package);
+            var masterRunner = new MasterTestRunner(_services, package);
+            var runner = masterRunner.GetEngineRunner();
             var result = GetRunnerResult(runner);
             Assert.That(result, Is.EqualTo(expected).Using(RunnerResultComparer.Instance));
         }
@@ -67,9 +84,11 @@ namespace NUnit.Engine.Tests.Services.TestRunnerFactoryTests
         }
 
 #if NETCOREAPP
-        private static IEnumerable<TestCaseData> TestCases => NetStandardAssemblyTestCases.TestCases;
+        private static IEnumerable<TestCaseData> TestCases => NetStandardTestCases.TestCases;
 #else
-        private static IEnumerable<TestCaseData> TestCases => Net20AssemblyTestCases.TestCases;
+        private static IEnumerable<TestCaseData> TestCases => Net20AssemblyTestCases.TestCases
+            .Concat(Net20ProjectTestCases.TestCases)
+            .Concat(Net20MixedProjectAndAssemblyTestCases.TestCases);
 #endif
     }
 }

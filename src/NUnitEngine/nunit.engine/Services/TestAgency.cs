@@ -26,6 +26,7 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Diagnostics;
+using System.Text;
 using NUnit.Common;
 using NUnit.Engine.Agents;
 using NUnit.Engine.Internal;
@@ -57,19 +58,12 @@ namespace NUnit.Engine.Services
     {
         private static readonly Logger log = InternalTrace.GetLogger(typeof(TestAgency));
 
-        #region Private Fields
-
         private readonly AgentDataBase _agentData = new AgentDataBase();
 
-        #endregion
-
-        #region Constructors
         public TestAgency() : this( "TestAgency", 0 ) { }
 
         public TestAgency( string uri, int port ) : base( uri, port ) { }
-        #endregion
 
-        #region ServerBase Overrides
         //public override void Stop()
         //{
         //    foreach( KeyValuePair<Guid,AgentRecord> pair in agentData )
@@ -93,9 +87,7 @@ namespace NUnit.Engine.Services
 
         //    base.Stop ();
         //}
-        #endregion
 
-        #region Public Methods - Called by Agents
         public void Register( ITestAgent agent )
         {
             AgentRecord r = _agentData[agent.Id];
@@ -105,10 +97,6 @@ namespace NUnit.Engine.Services
                     "agentId");
             r.Agent = agent;
         }
-
-        #endregion
-
-        #region Method Called by Clients
 
         public ITestAgent GetAgent(TestPackage package, int waitTime)
         {
@@ -151,9 +139,6 @@ namespace NUnit.Engine.Services
             return null;
         }
 
-        #endregion
-
-        #region Helper Methods
         private Guid LaunchAgentProcess(TestPackage package)
         {
             RuntimeFramework targetRuntime;
@@ -178,15 +163,17 @@ namespace NUnit.Engine.Services
             bool loadUserProfile = package.GetSetting(EnginePackageSettings.LoadUserProfile, false);
             string workDirectory = package.GetSetting(EnginePackageSettings.WorkDirectory, string.Empty);
 
+            var agentArgs = new StringBuilder();
+
             // Set options that need to be in effect before the package
             // is loaded by using the command line.
-            string agentArgs = "--pid=" + Process.GetCurrentProcess().Id.ToString();
+            agentArgs.Append("--pid=").Append(Process.GetCurrentProcess().Id);
             if (traceLevel != "Off")
-                agentArgs += " --trace:" + traceLevel;
+                agentArgs.Append(" --trace:").EscapeProcessArgument(traceLevel);
             if (debugAgent)
-                agentArgs += " --debug-agent";
+                agentArgs.Append(" --debug-agent");
             if (workDirectory != string.Empty)
-                agentArgs += " --work=\"" + workDirectory + "\"";
+                agentArgs.Append(" --work=").EscapeProcessArgument(workDirectory);
 
             log.Info("Getting {0} agent for use under {1}", useX86Agent ? "x86" : "standard", targetRuntime);
 
@@ -328,10 +315,6 @@ namespace NUnit.Engine.Services
             throw new NUnitEngineException(errorMsg);
         }
 
-        #endregion
-
-        #region IService Members
-
         public IServiceLocator ServiceContext { get; set; }
 
         public ServiceStatus Status { get; private set; }
@@ -361,8 +344,6 @@ namespace NUnit.Engine.Services
                 throw;
             }
         }
-
-        #endregion
     }
 }
 #endif

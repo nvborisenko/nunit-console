@@ -24,11 +24,18 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using NUnit.Engine.Runners;
 
 namespace NUnit.Engine.Tests.Services.TestRunnerFactoryTests
 {
     public class RunnerResult
     {
+#if !NETCOREAPP
+        public static RunnerResult TestDomainRunner => new RunnerResult { TestRunner = typeof(TestDomainRunner) };
+        public static RunnerResult ProcessRunner => new RunnerResult { TestRunner = typeof(ProcessRunner) };
+#endif
+        public static RunnerResult LocalTestRunner => new RunnerResult { TestRunner = typeof(LocalTestRunner) };
+
         public Type TestRunner { get; set; }
 
         public ICollection<RunnerResult> SubRunners { get; set; } = new List<RunnerResult>();
@@ -42,12 +49,13 @@ namespace NUnit.Engine.Tests.Services.TestRunnerFactoryTests
                 return sb.ToString().Trim();
 
             sb.AppendLine("SubRunners:");
+            sb.AppendLine("[");
 
             foreach (var subRunner in SubRunners)
             {
                 sb.AppendLine($"\t{subRunner}");
             }
-
+            sb.AppendLine("]");
             return sb.ToString().Trim();
         }
     }

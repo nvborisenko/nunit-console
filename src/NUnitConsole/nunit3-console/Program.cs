@@ -98,6 +98,14 @@ namespace NUnit.ConsoleRunner
                 if (Options.ShowVersion)
                     return ConsoleRunner.OK;
 
+                if (Options.WarningMessages.Count != 0)
+                {
+                    foreach (string message in Options.WarningMessages)
+                        OutWriter.WriteLine(ColorStyle.Warning, message);
+
+                    OutWriter.WriteLine();
+                }
+
                 if (!Options.Validate())
                 {
                     using (new ColorConsole(ColorStyle.Error))
@@ -140,7 +148,7 @@ namespace NUnit.ConsoleRunner
                     {
                         OutWriter.WriteLine(ColorStyle.Error, ExceptionHelper.BuildMessage(ex));
                         OutWriter.WriteLine();
-                        OutWriter.WriteLine(ColorStyle.Error, ExceptionHelper.BuildStackTrace(ex));
+                        OutWriter.WriteLine(ColorStyle.Error, ExceptionHelper.BuildMessageAndStackTrace(ex));
                         return ConsoleRunner.UNEXPECTED_ERROR;
                     }
                     finally

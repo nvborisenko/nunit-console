@@ -122,7 +122,7 @@ namespace NUnit.Engine.Drivers
         {
             CheckLoadWasCalled();
 
-            CallbackHandler handler = new RunTestsCallbackHandler(listener);
+            var handler = new RunTestsCallbackHandler(listener);
 
             log.Info("Running {0} - see separate log file", Path.GetFileName(_testAssemblyPath));
             CreateObject(RUN_ACTION, _frameworkController, filter, handler);
@@ -156,8 +156,6 @@ namespace NUnit.Engine.Drivers
             return handler.Result;
         }
 
-        #region Helper Methods
-
         private void CheckLoadWasCalled()
         {
             if (_frameworkController == null)
@@ -181,8 +179,6 @@ namespace NUnit.Engine.Drivers
                 throw new NUnitEngineException("The NUnit 3 driver encountered an error while executing reflected code.", ex.InnerException);
             }
         }
-
-        #endregion
     }
 }
 #endif

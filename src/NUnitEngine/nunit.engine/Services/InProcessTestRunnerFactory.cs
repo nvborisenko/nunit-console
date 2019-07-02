@@ -32,8 +32,6 @@ namespace NUnit.Engine.Services
     /// </summary>
     public class InProcessTestRunnerFactory : Service, ITestRunnerFactory
     {
-        #region ITestRunnerFactory Members
-
         /// <summary>
         /// Returns a test runner based on the settings in a TestPackage.
         /// Any setting that is "consumed" by the factory is removed, so
@@ -55,13 +53,11 @@ namespace NUnit.Engine.Services
             {
                 default:
                 case DomainUsage.Default:
+                case DomainUsage.Multiple:
                     if (package.SubPackages.Count > 1)
                         return new MultipleTestDomainRunner(this.ServiceContext, package);
                     else
                         return new TestDomainRunner(this.ServiceContext, package);
-
-                case DomainUsage.Multiple:
-                    return new MultipleTestDomainRunner(ServiceContext, package);
 
                 case DomainUsage.None:
                     return new LocalTestRunner(ServiceContext, package);
@@ -76,7 +72,5 @@ namespace NUnit.Engine.Services
         {
             return false;
         }
-
-        #endregion
     }
 }

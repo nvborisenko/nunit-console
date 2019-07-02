@@ -35,8 +35,6 @@ namespace NUnit.ConsoleRunner.Tests
     [TestFixture]
     public class CommandLineTests
     {
-        #region Argument Preprocessor Tests
-
         [TestCase("--arg", "--arg")]
         [TestCase("--ArG", "--ArG")]
         [TestCase("--arg1 --arg2", "--arg1", "--arg2")]
@@ -150,10 +148,6 @@ namespace NUnit.ConsoleRunner.Tests
             Assert.That(arglist, Is.EqualTo(lines));
             Assert.That(options.ErrorMessages, Is.EqualTo(expectedErrors));
         }
-
-        #endregion
-
-        #region General Tests
 
         [Test]
         public void NoInputFiles()
@@ -406,10 +400,6 @@ namespace NUnit.ConsoleRunner.Tests
             Assert.That(options.ErrorMessages[1], Is.EqualTo("Invalid argument: -assembly:Tests.dll"));
         }
 
-        #endregion
-
-        #region Timeout Option
-
         [Test]
         public void TimeoutIsMinusOneIfNoOptionIsProvided()
         {
@@ -439,10 +429,6 @@ namespace NUnit.ConsoleRunner.Tests
             Assert.That(options.Validate(), Is.False);
             Assert.That(options.DefaultTimeout, Is.EqualTo(-1));
         }
-
-        #endregion
-
-        #region EngineResult Option
 
         [Test]
         public void ResultOptionWithFilePath()
@@ -591,10 +577,6 @@ namespace NUnit.ConsoleRunner.Tests
             Assert.That(options.ErrorMessages, Has.Exactly(1).Contains($"{missingXslt} could not be found").IgnoreCase);
         }
 
-        #endregion
-
-        #region Explore Option
-
         [Test]
         public void ExploreOptionWithoutPath()
         {
@@ -698,10 +680,6 @@ namespace NUnit.ConsoleRunner.Tests
             Assert.That(expectedTeamCity, Is.EqualTo(actualTeamCity));
         }
 
-        #endregion
-
-        #region Testlist Option
-
         [Test]
         public void ShouldNotFailOnEmptyLine()
         {
@@ -709,51 +687,169 @@ namespace NUnit.ConsoleRunner.Tests
             // Not copying this test file into releases
             Assume.That(testListPath, Does.Exist);
             var options = new ConsoleOptions("--testlist=" + testListPath);
-            Assert.That(options.errorMessages, Is.Empty);
+            Assert.That(options.ErrorMessages, Is.Empty);
             Assert.That(options.TestList, Is.EqualTo(new[] {"AmazingTest"}));
         }
 
-        #endregion
-
-        #region Test Parameters
-
         [Test]
-        public void SingleTestParameter()
+        public void SingleDeprecatedTestParameter()
         {
             var options = new ConsoleOptions("--params=X=5");
-            Assert.That(options.errorMessages, Is.Empty);
+            Assert.That(options.ErrorMessages, Is.Empty);
+            Assert.That(options.WarningMessages, Has.One.Contains("deprecated").IgnoreCase);
             Assert.That(options.TestParameters, Is.EqualTo(new Dictionary<string, string> { { "X", "5" } }));
         }
 
         [Test]
-        public void TwoTestParametersInOneOption()
+        public void TwoDeprecatedTestParametersInOneOption()
         {
             var options = new ConsoleOptions("--params:X=5;Y=7");
-            Assert.That(options.errorMessages, Is.Empty);
+            Assert.That(options.ErrorMessages, Is.Empty);
+            Assert.That(options.WarningMessages, Has.One.Contains("deprecated").IgnoreCase);
             Assert.That(options.TestParameters, Is.EqualTo(new Dictionary<string, string> { { "X", "5" }, { "Y", "7" } }));
+        }
+
+        [Test]
+        public void TwoDeprecatedTestParametersInSeparateOptions()
+        {
+            var options = new ConsoleOptions("-p:X=5", "-p:Y=7");
+            Assert.That(options.ErrorMessages, Is.Empty);
+            Assert.That(options.WarningMessages, Has.One.Contains("deprecated").IgnoreCase);
+            Assert.That(options.TestParameters, Is.EqualTo(new Dictionary<string, string> { { "X", "5" }, { "Y", "7" } }));
+        }
+
+        [Test]
+        public void ThreeDeprecatedTestParametersInTwoOptions()
+        {
+            var options = new ConsoleOptions("--params:X=5;Y=7", "-p:Z=3");
+            Assert.That(options.ErrorMessages, Is.Empty);
+            Assert.That(options.WarningMessages, Has.One.Contains("deprecated").IgnoreCase);
+            Assert.That(options.TestParameters, Is.EqualTo(new Dictionary<string, string> { { "X", "5" }, { "Y", "7" }, { "Z", "3" } }));
+        }
+
+        [Test]
+        public void DeprecatedParameterWithoutEqualSignIsInvalid()
+        {
+            var options = new ConsoleOptions("--params=X5");
+            Assert.That(options.WarningMessages, Has.One.Contains("deprecated").IgnoreCase);
+            Assert.That(options.ErrorMessages.Count, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void SingleTestParameter()
+        {
+            var options = new ConsoleOptions("--testparam=X=5");
+            Assert.That(options.ErrorMessages, Is.Empty);
+            Assert.That(options.TestParameters, Is.EqualTo(new Dictionary<string, string> { { "X", "5" } }));
+        }
+
+        [Test]
+        public void SemicolonsDoNotSplitTestParameters()
+        {
+            var options = new ConsoleOptions("--testparam:X=5;Y=7");
+            Assert.That(options.ErrorMessages, Is.Empty);
+            Assert.That(options.TestParameters, Is.EqualTo(new Dictionary<string, string> { { "X", "5;Y=7" } }));
         }
 
         [Test]
         public void TwoTestParametersInSeparateOptions()
         {
-            var options = new ConsoleOptions("-p:X=5", "-p:Y=7");
-            Assert.That(options.errorMessages, Is.Empty);
+            var options = new ConsoleOptions("--testparam:X=5", "--testparam:Y=7");
+            Assert.That(options.ErrorMessages, Is.Empty);
             Assert.That(options.TestParameters, Is.EqualTo(new Dictionary<string, string> { { "X", "5" }, { "Y", "7" } }));
-        }
-
-        [Test]
-        public void ThreeTestParametersInTwoOptions()
-        {
-            var options = new ConsoleOptions("--params:X=5;Y=7", "-p:Z=3");
-            Assert.That(options.errorMessages, Is.Empty);
-            Assert.That(options.TestParameters, Is.EqualTo(new Dictionary<string, string> { { "X", "5" }, { "Y", "7" }, { "Z", "3" } }));
         }
 
         [Test]
         public void ParameterWithoutEqualSignIsInvalid()
         {
-            var options = new ConsoleOptions("--params=X5");
+            var options = new ConsoleOptions("--testparam=X5");
             Assert.That(options.ErrorMessages.Count, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void ParameterWithMissingNameIsInvalid()
+        {
+            var options = new ConsoleOptions("--testparam:=5");
+            Assert.That(options.ErrorMessages.Count, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void ParameterWithMissingValueIsInvalid()
+        {
+            var options = new ConsoleOptions("--testparam:X=");
+            Assert.That(options.ErrorMessages.Count, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void LeadingWhitespaceIsPreservedInParameterName()
+        {
+            // Command line examples to get in this scenario:
+            // --testparams:"  X"=5
+            // --testparams:"  X=5"
+            // "--testparams:  X=5"
+
+            var options = new ConsoleOptions("--testparam:  X=5");
+            Assert.That(options.TestParameters, Is.EqualTo(new Dictionary<string, string> { ["  X"] = "5" }));
+        }
+
+        [Test]
+        public void TrailingWhitespaceIsPreservedInParameterName()
+        {
+            // Command line examples to get in this scenario:
+            // --testparams:"X  "=5
+            // --testparams:"X  =5"
+            // "--testparams:X  =5"
+
+            var options = new ConsoleOptions("--testparam:X  =5");
+            Assert.That(options.TestParameters, Is.EqualTo(new Dictionary<string, string> { ["X  "] = "5" }));
+        }
+
+        [Test]
+        public void WhitespaceIsPermittedAsParameterName()
+        {
+            // Command line examples to get in this scenario:
+            // --testparams:"  "=5
+            // --testparams:"  =5"
+            // "--testparams:  =5"
+
+            var options = new ConsoleOptions("--testparam:  =5");
+            Assert.That(options.TestParameters, Is.EqualTo(new Dictionary<string, string> { ["  "] = "5" }));
+        }
+
+        [Test]
+        public void LeadingWhitespaceIsPreservedInParameterValue()
+        {
+            // Command line examples to get in this scenario:
+            // --testparams:X="  5"
+            // --testparams:"X=  5"
+            // "--testparams:X=  5"
+
+            var options = new ConsoleOptions("--testparam:X=  5");
+            Assert.That(options.TestParameters, Is.EqualTo(new Dictionary<string, string> { ["X"] = "  5" }));
+        }
+
+        [Test]
+        public void TrailingWhitespaceIsPreservedInParameterValue()
+        {
+            // Command line examples to get in this scenario:
+            // --testparams:X="5  "
+            // --testparams:"X=5  "
+            // "--testparams:X=5  "
+
+            var options = new ConsoleOptions("--testparam:X=5  ");
+            Assert.That(options.TestParameters, Is.EqualTo(new Dictionary<string, string> { ["X"] = "5  " }));
+        }
+
+        [Test]
+        public void WhitespaceIsPermittedAsParameterValue()
+        {
+            // Command line examples to get in this scenario:
+            // --testparams:X="  "
+            // --testparams:"X=  "
+            // "--testparams:X=  "
+
+            var options = new ConsoleOptions("--testparam:X=  ");
+            Assert.That(options.TestParameters, Is.EqualTo(new Dictionary<string, string> { ["X"] = "  " }));
         }
 
         [Test]
@@ -770,10 +866,6 @@ namespace NUnit.ConsoleRunner.Tests
             foreach (var name in TestContext.Parameters.Names)
                 Console.WriteLine("   Name: {0} Value: {1}", name, TestContext.Parameters[name]);
         }
-
-        #endregion
-
-        #region Helper Methods
 
         private static IFileSystem GetFileSystemContainingFile(string fileName)
         {
@@ -795,8 +887,6 @@ namespace NUnit.ConsoleRunner.Tests
             Assert.IsNotNull(property, "The property '{0}' is not defined", propertyName);
             return property;
         }
-
-        #endregion
 
         internal sealed class DefaultOptionsProviderStub : IDefaultOptionsProvider
         {
