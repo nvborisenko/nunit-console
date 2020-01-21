@@ -31,12 +31,12 @@ jobs:
       testRunTitle: netcoreapp1.1/Windows
     condition: succeededOrFailed()
   - task: PublishTestResults@2
-    displayName: Publish netcoreapp2.0 test results
+    displayName: Publish netcoreapp2.1 test results
     inputs:
       testResultsFormat: NUnit
-      testResultsFiles: test-results\netcoreapp2.0\*.xml
+      testResultsFiles: test-results\netcoreapp2.1\*.xml
       mergeTestResults: true
-      testRunTitle: netcoreapp2.0/Windows
+      testRunTitle: netcoreapp2.1/Windows
     condition: succeededOrFailed()
 
   - powershell: .\build.ps1 -Target Package --artifact-dir='$(Build.ArtifactStagingDirectory)'
@@ -53,7 +53,13 @@ jobs:
     vmImage: ubuntu-16.04
   steps:
 
-  - bash: ./build.sh --target Test --configuration Release
+  - bash: |
+      wget -q https://packages.microsoft.com/config/ubuntu/16.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
+      sudo dpkg -i packages-microsoft-prod.deb
+      sudo apt-get install apt-transport-https
+      sudo apt-get update
+      sudo apt-get install dotnet-sdk-2.2
+      ./build.sh --target=Test --configuration=Release
     displayName: Build and test
 
   # Workaround for https://github.com/nunit/nunit/issues/3012#issuecomment-441517922
@@ -74,12 +80,12 @@ jobs:
       testRunTitle: netcoreapp1.1/Linux
     condition: succeededOrFailed()
   - task: PublishTestResults@2
-    displayName: Publish netcoreapp2.0 test results
+    displayName: Publish netcoreapp2.1 test results
     inputs:
       testResultsFormat: NUnit
-      testResultsFiles: test-results/netcoreapp2.0/*.xml
+      testResultsFiles: test-results/netcoreapp2.1/*.xml
       mergeTestResults: true
-      testRunTitle: netcoreapp2.0/Linux
+      testRunTitle: netcoreapp2.1/Linux
     condition: succeededOrFailed()
 
 - job: macOS
@@ -87,7 +93,7 @@ jobs:
     vmImage: macOS-10.13
   steps:
 
-  - bash: ./build.sh --target Test --configuration Release
+  - bash: ./build.sh --target=Test --configuration=Release
     displayName: Build and test
 
   # Workaround for https://github.com/nunit/nunit/issues/3012#issuecomment-441517922
@@ -108,10 +114,10 @@ jobs:
       testRunTitle: netcoreapp1.1/macOS
     condition: succeededOrFailed()
   - task: PublishTestResults@2
-    displayName: Publish netcoreapp2.0 test results
+    displayName: Publish netcoreapp2.1 test results
     inputs:
       testResultsFormat: NUnit
-      testResultsFiles: test-results/netcoreapp2.0/*.xml
+      testResultsFiles: test-results/netcoreapp2.1/*.xml
       mergeTestResults: true
-      testRunTitle: netcoreapp2.0/macOS
+      testRunTitle: netcoreapp2.1/macOS
     condition: succeededOrFailed()

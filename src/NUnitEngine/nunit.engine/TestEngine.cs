@@ -36,25 +36,8 @@ namespace NUnit.Engine
     /// program to interact with NUnit in order to explore,
     /// load and run tests.
     /// </summary>
-    public class TestEngine : ITestEngine
+    public class TestEngine : CoreEngine, ITestEngine
     {
-        public TestEngine()
-        {
-            Services = new ServiceContext();
-#if NETSTANDARD1_6
-            WorkDirectory = NUnitConfiguration.ApplicationDirectory;
-#else
-            WorkDirectory = Environment.CurrentDirectory;
-#endif
-            InternalTraceLevel = InternalTraceLevel.Default;
-        }
-
-        public ServiceContext Services { get; private set; }
-
-        public string WorkDirectory { get; set; }
-
-        public InternalTraceLevel InternalTraceLevel { get; set; }
-
         /// <summary>
         /// Access the public IServiceLocator, first initializing
         /// the services if that has not already been done.
@@ -127,26 +110,6 @@ namespace NUnit.Engine
                 Initialize();
 
             return new Runners.MasterTestRunner(Services, package);
-        }
-
-        private bool _disposed = false;
-
-        public void Dispose()
-        {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-            Services.ServiceManager.StopServices();
-        }
-
-        protected virtual void Dispose(bool disposing)
-        {
-            if (!_disposed)
-            {
-                if (disposing)
-                    Services.ServiceManager.Dispose();
-
-                _disposed = true;
-            }
         }
     }
 }
