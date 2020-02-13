@@ -9,7 +9,7 @@
 
 var target = Argument("target", "Default");
 var configuration = Argument("configuration", "Release");
-var productVersion = Argument("productVersion", "3.11.0");
+var productVersion = Argument("productVersion", "3.12.0");
 
 var ErrorDetail = new List<string>();
 bool IsDotNetCoreInstalled = false;
@@ -551,7 +551,7 @@ Task("PackageZip")
 Task("InstallSigningTool")
     .Does(() =>
     {
-        var result = StartProcess("dotnet.exe", new ProcessSettings {  Arguments = "tool install SignClient" });
+        var result = StartProcess("dotnet.exe", new ProcessSettings {  Arguments = "tool install SignClient --global" });
     });
 
 Task("SignPackages")
