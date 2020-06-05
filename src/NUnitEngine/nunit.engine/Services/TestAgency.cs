@@ -23,13 +23,11 @@
 
 #if !NETSTANDARD1_6 && !NETSTANDARD2_0
 using System;
-using System.IO;
 using System.Threading;
 using System.Diagnostics;
-using System.Text;
 using NUnit.Common;
-using NUnit.Engine.Agents;
 using NUnit.Engine.Internal;
+using System.Net.Sockets;
 
 namespace NUnit.Engine.Services
 {
@@ -41,11 +39,11 @@ namespace NUnit.Engine.Services
     /// but only one, ProcessAgent is implemented
     /// at this time.
     /// </summary>
-    public class TestAgency : ServerBase, ITestAgency, IService
+    public partial class TestAgency : ServerBase, ITestAgency, IService
     {
         private static readonly Logger log = InternalTrace.GetLogger(typeof(TestAgency));
 
-        private readonly AgentStore _agents = new AgentStore();
+        private readonly AgentStore _agentStore = new AgentStore();
 
         public TestAgency() : this( "TestAgency", 0 ) { }
 
@@ -75,121 +73,30 @@ namespace NUnit.Engine.Services
         //    base.Stop ();
         //}
 
-        public void Register(ITestAgent agent)
+        public void Register(Guid agentId, ITestAgent agent)
         {
-            _agents.Register(agent);
+            _agentStore.Register(agentId, agent);
         }
 
-        public ITestAgent GetAgent(TestPackage package, int waitTime)
+        public IAgentLease GetAgent(TestPackage package, int waitTime)
         {
             // TODO: Decide if we should reuse agents
             return CreateRemoteAgent(package, waitTime);
         }
 
-        internal bool IsAgentProcessActive(Guid agentId, out Process process)
-        {
-            return _agents.IsAgentProcessActive(agentId, out process);
-        }
-
-        private Process LaunchAgentProcess(TestPackage package, Guid agentId)
-        {
-            RuntimeFramework targetRuntime;
-            string runtimeSetting = package.GetSetting(EnginePackageSettings.RuntimeFramework, "");
-            if (runtimeSetting.Length > 0)
-            {
-                if (!RuntimeFramework.TryParse(runtimeSetting, out targetRuntime))
-                    throw new NUnitEngineException("Invalid or unknown framework requested: " + runtimeSetting);
-            }
-            else
-            {
-                targetRuntime = RuntimeFramework.CurrentFramework;
-            }
-
-            if (targetRuntime.Runtime == RuntimeType.Any)
-                targetRuntime = new RuntimeFramework(RuntimeFramework.CurrentFramework.Runtime, targetRuntime.ClrVersion);
-
-            bool useX86Agent = package.GetSetting(EnginePackageSettings.RunAsX86, false);
-            bool debugTests = package.GetSetting(EnginePackageSettings.DebugTests, false);
-            bool debugAgent = package.GetSetting(EnginePackageSettings.DebugAgent, false);
-            string traceLevel = package.GetSetting(EnginePackageSettings.InternalTraceLevel, "Off");
-            bool loadUserProfile = package.GetSetting(EnginePackageSettings.LoadUserProfile, false);
-            string workDirectory = package.GetSetting(EnginePackageSettings.WorkDirectory, string.Empty);
-
-            var agentArgs = new StringBuilder();
-
-            // Set options that need to be in effect before the package
-            // is loaded by using the command line.
-            agentArgs.Append("--pid=").Append(Process.GetCurrentProcess().Id);
-            if (traceLevel != "Off")
-                agentArgs.Append(" --trace:").EscapeProcessArgument(traceLevel);
-            if (debugAgent)
-                agentArgs.Append(" --debug-agent");
-            if (workDirectory != string.Empty)
-                agentArgs.Append(" --work=").EscapeProcessArgument(workDirectory);
-
-            log.Info("Getting {0} agent for use under {1}", useX86Agent ? "x86" : "standard", targetRuntime);
-
-            if (!targetRuntime.IsAvailable)
-                throw new ArgumentException(
-                    string.Format("The {0} framework is not available", targetRuntime),
-                    "framework");
-
-            string agentExePath = GetTestAgentExePath(useX86Agent);
-
-            if (!File.Exists(agentExePath))
-                throw new FileNotFoundException(
-                    $"{Path.GetFileName(agentExePath)} could not be found.", agentExePath);
-
-            log.Debug("Using nunit-agent at " + agentExePath);
-
-            Process p = new Process();
-            p.StartInfo.UseShellExecute = false;
-            p.StartInfo.CreateNoWindow = true;
-            p.EnableRaisingEvents = true;
-            p.Exited += (sender, e) => OnAgentExit((Process)sender, agentId);
-            string arglist = agentId.ToString() + " " + ServerUrl + " " + agentArgs;
-
-            targetRuntime = ServiceContext.GetService<RuntimeFrameworkService>().GetBestAvailableFramework(targetRuntime);
-
-            switch( targetRuntime.Runtime )
-            {
-                case RuntimeType.Mono:
-                    p.StartInfo.FileName = RuntimeFramework.MonoExePath;
-                    string monoOptions = "--runtime=v" + targetRuntime.ClrVersion.ToString(3);
-                    if (debugTests || debugAgent) monoOptions += " --debug";
-                    p.StartInfo.Arguments = string.Format("{0} \"{1}\" {2}", monoOptions, agentExePath, arglist);
-                    break;
-
-                case RuntimeType.Net:
-                    p.StartInfo.FileName = agentExePath;
-                    // Override the COMPLUS_Version env variable, this would cause CLR meta host to run a CLR of the specific version
-                    string envVar = "v" + targetRuntime.ClrVersion.ToString(3);
-                    p.StartInfo.EnvironmentVariables["COMPLUS_Version"] = envVar;
-                    // Leave a marker that we have changed this variable, so that the agent could restore it for any code or child processes running within the agent
-                    string cpvOriginal = Environment.GetEnvironmentVariable("COMPLUS_Version");
-                    p.StartInfo.EnvironmentVariables["TestAgency_COMPLUS_Version_Original"] = string.IsNullOrEmpty(cpvOriginal) ? "NULL" : cpvOriginal;
-                    p.StartInfo.Arguments = arglist;
-                    p.StartInfo.LoadUserProfile = loadUserProfile;
-                    break;
-
-                default:
-                    p.StartInfo.FileName = agentExePath;
-                    p.StartInfo.Arguments = arglist;
-                    break;
-            }
-
-            p.Start();
-            log.Debug("Launched Agent process {0} - see nunit-agent_{0}.log", p.Id);
-            log.Debug("Command line: \"{0}\" {1}", p.StartInfo.FileName, p.StartInfo.Arguments);
-
-            _agents.Start(agentId, p);
-            return p;
-        }
-
-        private ITestAgent CreateRemoteAgent(TestPackage package, int waitTime)
+        private IAgentLease CreateRemoteAgent(TestPackage package, int waitTime)
         {
             var agentId = Guid.NewGuid();
-            var process = LaunchAgentProcess(package, agentId);
+            //var process = LaunchAgentProcess(package, agentId);
+            var process = new AgentProcess(this, package, agentId);
+
+            process.Exited += (sender, e) => OnAgentExit((Process)sender, agentId);
+
+            process.Start();
+            log.Debug("Launched Agent process {0} - see nunit-agent_{0}.log", process.Id);
+            log.Debug("Command line: \"{0}\" {1}", process.StartInfo.FileName, process.StartInfo.Arguments);
+
+            _agentStore.AddAgent(agentId, process);
 
             log.Debug($"Waiting for agent {agentId:B} to register");
 
@@ -201,31 +108,19 @@ namespace NUnit.Engine.Services
             {
                 Thread.Sleep(pollTime);
 
-                if (_agents.IsReady(agentId, out var agent))
+                if (_agentStore.IsReady(agentId, out var agent))
                 {
                     log.Debug($"Returning new agent {agentId:B}");
-                    return new RemoteTestAgentProxy(agent, agentId);
+                    return new AgentLease(this, agentId, agent);
                 }
             }
 
             return null;
         }
 
-        private static string GetTestAgentExePath(bool requires32Bit)
-        {
-            string engineDir = NUnitConfiguration.EngineDirectory;
-            if (engineDir == null) return null;
-
-            string agentName = requires32Bit
-                ? "nunit-agent-x86.exe"
-                : "nunit-agent.exe";
-
-            return Path.Combine(engineDir, agentName);
-        }
-
         private void OnAgentExit(Process process, Guid agentId)
         {
-            _agents.MarkTerminated(agentId);
+            _agentStore.MarkTerminated(agentId);
 
             string errorMsg;
 
@@ -251,6 +146,16 @@ namespace NUnit.Engine.Services
                     break;
                 case AgentExitCodes.UNABLE_TO_LOCATE_AGENCY:
                     errorMsg = "Remote test agent unable to locate agency process.";
+                    break;
+                case AgentExitCodes.STACK_OVERFLOW_EXCEPTION:
+                    if (Environment.OSVersion.Platform == PlatformID.Win32NT)
+                    {
+                        errorMsg = "Remote test agent was terminated due to a stack overflow.";
+                    }
+                    else
+                    {
+                        errorMsg = $"Remote test agent exited with non-zero exit code {process.ExitCode}";
+                    }
                     break;
                 default:
                     errorMsg = $"Remote test agent exited with non-zero exit code {process.ExitCode}";
@@ -287,6 +192,47 @@ namespace NUnit.Engine.Services
             {
                 Status = ServiceStatus.Error;
                 throw;
+            }
+        }
+
+        private void Release(Guid agentId, ITestAgent agent)
+        {
+            if (_agentStore.IsAgentProcessActive(agentId, out var process))
+            {
+                try
+                {
+                    log.Debug("Stopping remote agent");
+                    agent.Stop();
+                }
+                catch (SocketException ex)
+                {
+                    int? exitCode;
+                    try
+                    {
+                        exitCode = process.ExitCode;
+                    }
+                    catch (NotSupportedException)
+                    {
+                        exitCode = null;
+                    }
+
+                    if (exitCode == 0)
+                    {
+                        log.Warning("Agent connection was forcibly closed. Exit code was 0, so agent shutdown OK");
+                    }
+                    else
+                    {
+                        var stopError = $"Agent connection was forcibly closed. Exit code was {exitCode?.ToString() ?? "unknown"}. {Environment.NewLine}{ExceptionHelper.BuildMessageAndStackTrace(ex)}";
+                        log.Error(stopError);
+                        throw new NUnitEngineUnloadException(stopError, ex);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    var stopError = "Failed to stop the remote agent." + Environment.NewLine + ExceptionHelper.BuildMessageAndStackTrace(ex);
+                    log.Error(stopError);
+                    throw new NUnitEngineUnloadException(stopError, ex);
+                }
             }
         }
     }
